@@ -5,21 +5,22 @@ import random
 import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from reel_generator import create_and_post_reel
 
 load_dotenv()
 
-FB_TOKEN         = os.getenv("FB_TOKEN")
-FB_PAGE_ID       = os.getenv("FB_PAGE_ID")
-FOOTBALL_KEY     = os.getenv("FOOTBALL_KEY")
-APIFOOTBALL_KEY  = os.getenv("APIFOOTBALL_KEY")
+FB_TOKEN       = os.getenv("FB_TOKEN")
+FB_PAGE_ID     = os.getenv("FB_PAGE_ID")
+FOOTBALL_KEY   = os.getenv("FOOTBALL_KEY")
+APIFOOTBALL_KEY = os.getenv("APIFOOTBALL_KEY")  # API-Football for internationals
 
-FOOTBALL_BASE    = "https://api.football-data.org/v4"
+FOOTBALL_BASE   = "https://api.football-data.org/v4"
 APIFOOTBALL_BASE = "https://v3.football.api-sports.io"
-FB_POST_URL      = f"https://graph.facebook.com/{FB_PAGE_ID}/feed"
-STATE_FILE       = "match_state.json"
-PAGE_NAME        = "ScoreLine Live"
+FB_POST_URL     = f"https://graph.facebook.com/{FB_PAGE_ID}/feed"
+STATE_FILE      = "match_state.json"
+PAGE_NAME       = "ScoreLine Live"
 
-# ── Leagues (football-data.org) ───────────────────────────────────
+# ── All leagues ───────────────────────────────────────────────────
 LEAGUES = {
     "PL":  "Premier League",
     "PD":  "La Liga",
@@ -36,34 +37,34 @@ LEAGUES = {
 }
 
 LEAGUE_FLAGS = {
-    "PL":   "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-    "PD":   "🇪🇸",
-    "SA":   "🇮🇹",
-    "BL1":  "🇩🇪",
-    "FL1":  "🇫🇷",
-    "CL":   "🏆",
-    "ELC":  "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-    "DED":  "🇳🇱",
-    "PPL":  "🇵🇹",
-    "BSA":  "🇧🇷",
-    "WC":   "🌍",
-    "EC":   "🇪🇺",
+    "PL":  "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "PD":  "🇪🇸",
+    "SA":  "🇮🇹",
+    "BL1": "🇩🇪",
+    "FL1": "🇫🇷",
+    "CL":  "🏆",
+    "ELC": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "DED": "🇳🇱",
+    "PPL": "🇵🇹",
+    "BSA": "🇧🇷",
+    "WC":  "🌍",
+    "EC":  "🇪🇺",
     "INTL": "🌍",
 }
 
 LEAGUE_HASHTAGS = {
-    "PL":   "#PremierLeague #EPL",
-    "PD":   "#LaLiga #SpanishFootball",
-    "SA":   "#SerieA #ItalianFootball",
-    "BL1":  "#Bundesliga #GermanFootball",
-    "FL1":  "#Ligue1 #FrenchFootball",
-    "CL":   "#ChampionsLeague #UCL",
-    "ELC":  "#Championship #EFL",
-    "DED":  "#Eredivisie #DutchFootball",
-    "PPL":  "#PrimeiraLiga #PortugueseFootball",
-    "BSA":  "#Brasileirao #BrazilianFootball",
-    "WC":   "#WorldCup #FIFA",
-    "EC":   "#EURO #EuropeanChampionship",
+    "PL":  "#PremierLeague #EPL",
+    "PD":  "#LaLiga #SpanishFootball",
+    "SA":  "#SerieA #ItalianFootball",
+    "BL1": "#Bundesliga #GermanFootball",
+    "FL1": "#Ligue1 #FrenchFootball",
+    "CL":  "#ChampionsLeague #UCL",
+    "ELC": "#Championship #EFL",
+    "DED": "#Eredivisie #DutchFootball",
+    "PPL": "#PrimeiraLiga #PortugueseFootball",
+    "BSA": "#Brasileirao #BrazilianFootball",
+    "WC":  "#WorldCup #FIFA",
+    "EC":  "#EURO #EuropeanChampionship",
     "INTL": "#InternationalFootball #WorldCup2026",
 }
 
@@ -111,27 +112,38 @@ REDCARD_QUESTIONS = [
     "Did the ref make the right call? 👇",
 ]
 
-# ── Filler content ────────────────────────────────────────────────
+# ── Filler content library for light matchdays ────────────────────
 FILLER_POSTS = [
+    # Debates
     "🔥 DEBATE | Messi vs Ronaldo — who is the greatest of all time? Drop your vote below 👇\n\n#Messi #Ronaldo #GOATDebate #Football #FootballTalk",
     "⚔️ DEBATE | Haaland vs Mbappe — who will be the best player in the world in 5 years? 👑\n\nDrop your pick below 👇\n\n#Haaland #Mbappe #Football #FutureStars",
     "🔥 DEBATE | Who is the best Premier League player of all time? 🏴󠁧󠁢󠁥󠁮󠁧󠁿\n\nDrop your GOAT below 👇\n\n#PremierLeague #EPL #Football #GOAT",
     "⚔️ DEBATE | Best rivalry in football history?\n\n🔵 Barcelona vs Real Madrid\n🔴 Man United vs Liverpool\n⚫ AC Milan vs Inter\n\nDrop your pick 👇\n\n#ElClasico #Football #Rivalry #FootballDebate",
     "🔥 DEBATE | Who is the best African footballer of all time? 🌍\n\nDrop your GOAT below 👇\n\n#AfricanFootball #Football #GOAT #FootballTalk",
+
+    # Legends
     "🐐 LEGEND | Ronaldinho was one of the most entertaining players to ever play the game. Pure magic with the ball. 🔥\n\nDo you agree? 👇\n\n#Ronaldinho #Football #Legend #FootballHistory",
     "🐐 LEGEND | Thierry Henry scored 175 Premier League goals for Arsenal. One of the greatest strikers ever. 🏴󠁧󠁢󠁥󠁮󠁧󠁿\n\nWas he the best striker in PL history? 👇\n\n#TierryHenry #Arsenal #PremierLeague #Legend",
     "🐐 LEGEND | Zinedine Zidane won the World Cup, Euro, and Champions League. The complete midfielder. 🏆\n\nTop 5 player of all time? Drop your thoughts 👇\n\n#Zidane #France #Legend #Football",
     "🐐 LEGEND | Pele scored over 1000 career goals. A number that may never be matched. 🌍\n\nGreatest footballer ever? 👇\n\n#Pele #Brazil #Football #Legend",
     "🐐 LEGEND | Paolo Maldini played for AC Milan for 25 years. The greatest defender of all time? 🇮🇹\n\nDrop your GOAT defender below 👇\n\n#Maldini #ACMilan #SerieA #Defender #Legend",
+
+    # Records
     "📌 RECORD | Lionel Messi scored 91 goals in a single calendar year in 2012. Will this record ever be broken? 🏆\n\nDrop your thoughts 👇\n\n#Messi #Record #Football #Goals",
     "📌 RECORD | Real Madrid have won the Champions League 15 times. The most successful club in UCL history. 🏆\n\nCan anyone catch them? 👇\n\n#RealMadrid #UCL #ChampionsLeague #Record",
     "📌 RECORD | Cristiano Ronaldo is the all-time top scorer in international football with over 130 goals. 🇵🇹\n\nWill anyone ever beat this? 👇\n\n#Ronaldo #Portugal #Goals #Record #Football",
+
+    # Fun facts
     "😱 DID YOU KNOW | The fastest goal in football history was scored after just 2.4 seconds! ⚡\n\nWould you have even noticed? 😂 Drop a reaction below 👇\n\n#Football #FunFacts #FootballTrivia",
     "😱 DID YOU KNOW | Brazil is the only country to have played in every single FIFA World Cup. 🇧🇷🌍\n\nDid you know this? Drop a 🇧🇷 below if you did!\n\n#Brazil #WorldCup #FIFA #FootballFacts",
     "😱 DID YOU KNOW | The Premier League ball travels at over 80mph when struck by top players. ⚡\n\nInsane right? 😱 Drop a reaction 👇\n\n#PremierLeague #Football #FunFacts",
+
+    # Fan polls
     "📣 FAN POLL | Which is the best league in the world right now? 🌍\n\n🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League\n🇪🇸 La Liga\n🇩🇪 Bundesliga\n🇮🇹 Serie A\n\nDrop your pick below 👇\n\n#Football #BestLeague #FootballTalk #Poll",
     "📣 FAN POLL | Who is the best young player in the world right now? 🌟\n\n⭐ Yamal\n⭐ Bellingham\n⭐ Endrick\n⭐ Camavinga\n\nDrop your pick 👇\n\n#Football #YoungPlayers #NextGen #Poll",
     "📣 FAN POLL | What is the greatest goal you have ever seen? ⚽\n\nDrop the player and match below 👇\n\n#Football #GreatestGoals #FootballMoments #Poll",
+
+    # World Cup 2026 hype
     "🌍 WORLD CUP 2026 | The tournament is getting closer. Which country do you think will win? 🏆\n\nDrop your pick below 👇\n\n#WorldCup2026 #FIFA #Football #WorldCup",
     "🌍 WORLD CUP 2026 | USA, Canada and Mexico will host the biggest World Cup ever. 48 teams, 104 matches! 🔥\n\nAre you excited? 👇\n\n#WorldCup2026 #FIFA #Football",
 ]
@@ -174,357 +186,156 @@ def save_state(goals, cards, lineups, halftimes, fulltimes,
  posted_ft, posted_matchdays, posted_next_fixtures,
  posted_filler) = load_state()
 
+# Filler timing
 last_filler_time = 0
 
-# ── API-Football smart request budget tracker ─────────────────────
-# Free plan = 100 requests/day. We track usage to never go over.
-apif_requests_today  = 0
-apif_last_reset_date = None
-
-def apif_budget_reset():
-    """Reset counter at midnight UTC every day."""
-    global apif_requests_today, apif_last_reset_date
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    if apif_last_reset_date != today:
-        apif_requests_today  = 0
-        apif_last_reset_date = today
-
-def apif_can_call():
-    """Return True only if we still have budget remaining."""
-    apif_budget_reset()
-    # Keep 10 requests as safety buffer
-    return apif_requests_today < 90
-
-# ── International match cache ─────────────────────────────────────
-# Fetch today's international fixture IDs ONCE, reuse all day.
-# Only re-poll live scores using /fixtures?live=all (1 call covers ALL live games)
-_intl_fixture_ids   = []      # list of API-Football fixture IDs for today
-_intl_fixtures_date = None    # date they were fetched for
-_intl_last_live_check = 0     # timestamp of last live poll
-INTL_LIVE_POLL_INTERVAL = 60  # poll live games every 60 seconds
-
-# ── football-data.org helper ──────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────
 def football_get(path):
     headers = {"X-Auth-Token": FOOTBALL_KEY}
     try:
         r = requests.get(f"{FOOTBALL_BASE}{path}", headers=headers, timeout=10)
         if r.status_code == 200:
             return r.json()
-        elif r.status_code == 429:
-            print("[WARN] football-data.org rate limit hit — waiting 60s")
-            time.sleep(60)
     except Exception as e:
-        print(f"[ERROR] football-data.org request failed: {e}")
+        print(f"[ERROR] API request failed: {e}")
     return None
 
-# ── API-Football helper ───────────────────────────────────────────
 def apifootball_get(path):
-    """Call API-Football. Tracks daily budget. Returns None if over limit."""
-    global apif_requests_today
-
+    """Fetch from API-Football (for internationals and friendlies)."""
     if not APIFOOTBALL_KEY:
-        print("[INTL] ⚠️  APIFOOTBALL_KEY missing — international matches disabled!")
         return None
-
-    if not apif_can_call():
-        print(f"[INTL] ⚠️  Daily budget reached ({apif_requests_today}/90) — skipping API-Football call")
-        return None
-
     headers = {
         "x-rapidapi-host": "v3.football.api-sports.io",
         "x-rapidapi-key":  APIFOOTBALL_KEY,
     }
     try:
         r = requests.get(f"{APIFOOTBALL_BASE}{path}", headers=headers, timeout=10)
-        apif_requests_today += 1
-
         if r.status_code == 200:
-            data   = r.json()
-            errors = data.get("errors", {})
-            if errors:
-                print(f"[INTL] ⚠️  API-Football error in response: {errors}")
-                return None
-            remaining = r.headers.get("x-ratelimit-requests-remaining", "?")
-            print(f"[INTL] API-Football OK — used {apif_requests_today} req today, {remaining} remaining on server")
-            return data
-        else:
-            print(f"[INTL] ⚠️  API-Football HTTP {r.status_code}: {r.text[:200]}")
+            return r.json()
     except Exception as e:
         print(f"[ERROR] API-Football request failed: {e}")
     return None
 
-# ── STEP 1: Fetch today's international fixture IDs (once per day) ─
-def fetch_intl_fixture_ids_today():
+def get_international_matches_today():
     """
-    Called ONCE at startup and once per day at midnight.
-    Fetches all of today's international/friendly fixture IDs from API-Football.
-    Costs exactly 1 request per day.
+    Fetch today's international matches from API-Football.
+    Covers World Cup qualifiers, Nations League, friendlies, continental qualifiers.
+    Returns list of normalized match dicts compatible with our existing handlers.
     """
-    global _intl_fixture_ids, _intl_fixtures_date
-
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    if _intl_fixtures_date == today and _intl_fixture_ids:
-        return  # Already fetched today — do nothing
-
-    print(f"[INTL] Fetching today's international fixture IDs for {today}...")
-    data = apifootball_get(f"/fixtures?date={today}")
+    data  = apifootball_get(f"/fixtures?date={today}&type=international")
+    matches = []
 
     if not data:
-        print("[INTL] Could not fetch fixture IDs — internationals disabled today")
-        _intl_fixture_ids   = []
-        _intl_fixtures_date = today
-        return
+        # Fallback — fetch all fixtures today and filter international ones
+        data = apifootball_get(f"/fixtures?date={today}")
 
-    # Keywords to IDENTIFY international matches
+    if not data:
+        return matches
+
+    # International competition keywords
     INTL_KEYWORDS = [
         "world cup", "qualification", "qualifier", "nations league",
-        "friendly", "friendlies", "international", "continental",
-        "afcon", "africa cup", "gold cup", "concacaf", "copa america",
-        "afc", "caf", "conmebol", "uefa", "fifa", "playoff",
-        "olympics", "olympic", "pan american", "caribbean",
-        "asian cup", "arab cup", "amical", "amistoso", "testspiel",
-        "copa", "selecao", "seleccion",
+        "friendly", "international", "continental", "copa", "afcon",
+        "euro", "gold cup", "concacaf", "afc", "caf", "conmebol",
+        "uefa", "fifa", "playoff"
     ]
-
-    # Keywords to EXCLUDE domestic club competitions
-    CLUB_KEYWORDS = [
-        "premier league", "la liga", "serie a", "bundesliga", "ligue 1",
-        "ligue 2", "championship", "eredivisie", "primeira liga",
-        "super lig", "mls", "a-league", "j1 league", "j2 league",
-        "k league", "liga mx", "brasileirao", "serie b", "serie c",
-        "scottish", "belgian", "swiss super", "austrian", "greek super",
-        "ukrainian", "russian premier", "segunda", "regionalliga",
-        "fa cup", "copa del rey", "dfb-pokal", "coppa italia",
-        "coupe de france", "carabao", "league cup",
-        "champions league", "europa league", "conference league",
-        "super cup", "supercopa", "supercoppa", "community shield",
-    ]
-
-    # Countries that signal international competition
-    INTL_COUNTRIES = {
-        "world", "europe", "south america", "north america",
-        "africa", "asia", "oceania", "concacaf",
-    }
-
-    ids = []
-    total = len(data.get("response", []))
 
     for fixture in data.get("response", []):
-        league      = fixture.get("league", {})
-        league_name = league.get("name", "").lower().strip()
-        league_type = league.get("type", "").lower().strip()
-        country     = league.get("country", "").lower().strip()
+        league_name = fixture.get("league", {}).get("name", "").lower()
+        league_type = fixture.get("league", {}).get("type", "").lower()
 
-        # Hard skip club competitions
-        if any(kw in league_name for kw in CLUB_KEYWORDS):
-            continue
-
-        # Accept if any signal matches
         is_intl = (
-            league_type in ("cup", "international", "friendly") or
-            any(kw in league_name for kw in INTL_KEYWORDS) or
-            country in INTL_COUNTRIES
+            "cup" in league_type or
+            "international" in league_type or
+            any(kw in league_name for kw in INTL_KEYWORDS)
         )
 
-        if is_intl:
-            fix_id = fixture.get("fixture", {}).get("id")
-            if fix_id:
-                ids.append(fix_id)
+        if not is_intl:
+            continue
 
-    _intl_fixture_ids   = ids
-    _intl_fixtures_date = today
-    print(f"[INTL] Found {len(ids)} international fixtures today (from {total} total)")
+        # Normalize to match our existing format
+        fix      = fixture.get("fixture", {})
+        teams    = fixture.get("teams", {})
+        goals    = fixture.get("goals", {})
+        score    = fixture.get("score", {})
+        status   = fix.get("status", {}).get("short", "")
 
-# ── STEP 2: Poll live scores for international matches ─────────────
-def get_live_intl_matches():
-    """
-    Uses /fixtures?live=all — ONE call covers ALL live matches at once.
-    Only returns matches that are in today's international fixture ID list.
-    Respects the 60-second polling interval.
-    """
-    global _intl_last_live_check
+        # Map API-Football status to our status codes
+        status_map = {
+            "NS":  "SCHEDULED",
+            "TBD": "TIMED",
+            "1H":  "IN_PLAY",
+            "2H":  "IN_PLAY",
+            "HT":  "PAUSED",
+            "FT":  "FINISHED",
+            "AET": "FINISHED",
+            "PEN": "FINISHED",
+            "PST": "POSTPONED",
+            "CANC": "CANCELLED",
+        }
 
-    if not _intl_fixture_ids:
-        return []
+        norm_status = status_map.get(status, "SCHEDULED")
 
-    now = time.time()
-    if now - _intl_last_live_check < INTL_LIVE_POLL_INTERVAL:
-        return []  # Too soon to poll again
+        ht_home = score.get("halftime", {}).get("home")
+        ht_away = score.get("halftime", {}).get("away")
+        ft_home = goals.get("home")
+        ft_away = goals.get("away")
 
-    _intl_last_live_check = now
+        comp_name = fixture.get("league", {}).get("name", "International")
+        flag_map  = {
+            "World Cup": "🌍", "UEFA": "🇪🇺", "AFCON": "🌍",
+            "CONCACAF": "🌎", "Copa America": "🌎", "Nations League": "🏆",
+        }
+        comp_flag = next(
+            (v for k, v in flag_map.items() if k.lower() in comp_name.lower()), "🌍"
+        )
 
-    data = apifootball_get("/fixtures?live=all")
-    if not data:
-        return []
-
-    live_fixtures = data.get("response", [])
-    live_intl     = [f for f in live_fixtures
-                     if f.get("fixture", {}).get("id") in _intl_fixture_ids]
-
-    print(f"[INTL] Live poll: {len(live_fixtures)} total live, {len(live_intl)} are today's internationals")
-    return live_intl
-
-# ── STEP 3: Get ALL today's intl matches (for preview + status) ────
-def get_all_intl_matches_today():
-    """
-    Returns normalized match dicts for ALL of today's international matches.
-    For scheduled/finished matches, fetches their current status in bulk.
-    Called once per check cycle to build the full picture.
-    """
-    if not _intl_fixture_ids:
-        return []
-
-    # Fetch status for all today's intl fixtures in one call using IDs
-    ids_str = "-".join(str(i) for i in _intl_fixture_ids[:20])  # max 20 per call
-    data    = apifootball_get(f"/fixtures?ids={ids_str}")
-
-    if not data:
-        return []
-
-    return [normalize_apif_fixture(f) for f in data.get("response", [])]
-
-# ── STEP 4: Normalize API-Football fixture to our format ───────────
-def normalize_apif_fixture(fixture):
-    """Convert API-Football fixture dict to our standard match format."""
-    fix    = fixture.get("fixture", {})
-    teams  = fixture.get("teams", {})
-    goals  = fixture.get("goals", {})
-    score  = fixture.get("score", {})
-    league = fixture.get("league", {})
-    status = fix.get("status", {}).get("short", "")
-
-    STATUS_MAP = {
-        "NS":   "SCHEDULED",
-        "TBD":  "TIMED",
-        "1H":   "IN_PLAY",
-        "2H":   "IN_PLAY",
-        "ET":   "IN_PLAY",
-        "P":    "IN_PLAY",
-        "BT":   "PAUSED",
-        "HT":   "PAUSED",
-        "FT":   "FINISHED",
-        "AET":  "FINISHED",
-        "PEN":  "FINISHED",
-        "AWD":  "FINISHED",
-        "WO":   "FINISHED",
-        "PST":  "POSTPONED",
-        "CANC": "CANCELLED",
-        "ABD":  "CANCELLED",
-    }
-
-    norm_status = STATUS_MAP.get(status, "SCHEDULED")
-    comp_name   = league.get("name", "International")
-    home_name   = teams.get("home", {}).get("name", "")
-    away_name   = teams.get("away", {}).get("name", "")
-
-    FLAG_MAP = {
-        "world cup":      "🌍",
-        "nations league": "🏆",
-        "euro":           "🇪🇺",
-        "uefa":           "🇪🇺",
-        "afcon":          "🌍",
-        "africa cup":     "🌍",
-        "concacaf":       "🌎",
-        "gold cup":       "🌎",
-        "copa america":   "🌎",
-        "afc":            "🌏",
-        "asian":          "🌏",
-        "olympics":       "🏅",
-        "friendly":       "🤝",
-        "amical":         "🤝",
-        "amistoso":       "🤝",
-        "qualification":  "🌍",
-        "qualifier":      "🌍",
-        "playoff":        "🌍",
-    }
-    comp_lower = comp_name.lower()
-    comp_flag  = next((v for k, v in FLAG_MAP.items() if k in comp_lower), "🌍")
-
-    # Extract goals and bookings from events if present
-    match_goals    = []
-    match_bookings = []
-    for event in fixture.get("events", []):
-        etype  = event.get("type", "").lower()
-        detail = event.get("detail", "").lower()
-        minute = event.get("time", {}).get("elapsed", "?")
-        player = event.get("player", {}).get("name", "Unknown")
-        assist = event.get("assist", {}) or {}
-        team   = event.get("team", {}).get("name", "")
-
-        if etype == "goal" and "own" not in detail and "missed" not in detail and "penalty" not in detail:
-            match_goals.append({
-                "minute": minute,
-                "scorer": {"name": player},
-                "assist": {"name": assist.get("name", "")} if assist.get("name") else {},
-                "team":   {"shortName": team},
-            })
-        elif etype == "goal" and "penalty" in detail:
-            match_goals.append({
-                "minute": minute,
-                "scorer": {"name": f"{player} (pen)"},
-                "assist": {},
-                "team":   {"shortName": team},
-            })
-        elif etype == "card" and "red" in detail:
-            match_bookings.append({
-                "minute": minute,
-                "card":   "RED_CARD",
-                "player": {"name": player},
-                "team":   {"shortName": team},
-            })
-
-    return {
-        "id":       f"apif_{fix.get('id', '')}",
-        "utcDate":  fix.get("date", ""),
-        "status":   norm_status,
-        "competition": {
-            "code": "INTL",
-            "name": comp_name,
-            "flag": comp_flag,
-        },
-        "homeTeam": {
-            "id":        str(teams.get("home", {}).get("id", "")),
-            "name":      home_name,
-            "shortName": home_name,
-        },
-        "awayTeam": {
-            "id":        str(teams.get("away", {}).get("id", "")),
-            "name":      away_name,
-            "shortName": away_name,
-        },
-        "score": {
-            "halfTime": {
-                "home": score.get("halftime", {}).get("home"),
-                "away": score.get("halftime", {}).get("away"),
+        normalized = {
+            "id":       f"apif_{fix.get('id', '')}",
+            "utcDate":  fix.get("date", ""),
+            "status":   norm_status,
+            "competition": {
+                "code": "INTL",
+                "name": comp_name,
+                "flag": comp_flag,
             },
-            "fullTime": {
-                "home": goals.get("home"),
-                "away": goals.get("away"),
+            "homeTeam": {
+                "id":        teams.get("home", {}).get("id", ""),
+                "name":      teams.get("home", {}).get("name", ""),
+                "shortName": teams.get("home", {}).get("name", ""),
             },
-        },
-        "goals":    match_goals,
-        "bookings": match_bookings,
-        "lineups":  fixture.get("lineups", []),
-        "_apif_fixture_id": fix.get("id", ""),
-        "_comp_name":       comp_name,
-        "_comp_flag":       comp_flag,
-    }
+            "awayTeam": {
+                "id":        teams.get("away", {}).get("id", ""),
+                "name":      teams.get("away", {}).get("name", ""),
+                "shortName": teams.get("away", {}).get("name", ""),
+            },
+            "score": {
+                "halfTime": {"home": ht_home, "away": ht_away},
+                "fullTime": {"home": ft_home, "away": ft_away},
+            },
+            "goals":    [],   # API-Football goals need separate call
+            "bookings": [],
+            "lineups":  [],
+            "_apif_fixture_id": fix.get("id", ""),
+            "_comp_name": comp_name,
+            "_comp_flag": comp_flag,
+        }
+        matches.append(normalized)
 
-# ── Post to Facebook ──────────────────────────────────────────────
+    print(f"[INTL] Found {len(matches)} international matches today via API-Football")
+    return matches
+
 def post_to_facebook(message):
     payload = {"message": message, "access_token": FB_TOKEN}
-    try:
-        r = requests.post(FB_POST_URL, data=payload, timeout=10)
-        if r.status_code == 200:
-            print(f"[POSTED] {message[:70]}...")
-            return True
-        else:
-            print(f"[ERROR] FB post failed: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"[ERROR] FB post exception: {e}")
-    return False
+    r = requests.post(FB_POST_URL, data=payload, timeout=10)
+    if r.status_code == 200:
+        print(f"[POSTED] {message[:70]}...")
+        return True
+    else:
+        print(f"[ERROR] FB post failed: {r.status_code} {r.text}")
+        return False
 
-# ── Score helpers ─────────────────────────────────────────────────
 def get_score(match):
     home = match["homeTeam"]["shortName"]
     away = match["awayTeam"]["shortName"]
@@ -535,20 +346,17 @@ def get_score(match):
     return home, away, hs, as_
 
 def get_league_code(league_name):
-    return next((c for c, n in LEAGUES.items() if n == league_name), "INTL")
-
-def get_flag(league_name):
-    code = get_league_code(league_name)
-    return LEAGUE_FLAGS.get(code, "🌍")
+    return next((c for c, n in LEAGUES.items() if n == league_name), "")
 
 def get_hashtags(league_name):
     code = get_league_code(league_name)
-    return LEAGUE_HASHTAGS.get(code, "#Football #InternationalFootball #WorldCup2026")
+    return LEAGUE_HASHTAGS.get(code, "#Football #LiveFootball")
 
 def is_heavy_matchday(all_matches_today):
+    """Heavy day = 5+ big matches or major leagues playing."""
     big_leagues = {"PL", "PD", "SA", "BL1", "FL1", "CL", "WC", "EC"}
-    total       = sum(len(m) for m in all_matches_today.values())
-    has_big     = any(c in big_leagues for c in all_matches_today)
+    total = sum(len(m) for m in all_matches_today.values())
+    has_big = any(c in big_leagues for c in all_matches_today)
     return total >= 5 or has_big
 
 # ── Matchday preview ──────────────────────────────────────────────
@@ -562,9 +370,10 @@ def handle_matchday_preview(all_matches_today):
     lines = ["📅 MATCHES OF THE DAY\n"]
 
     for league_code, matches in all_matches_today.items():
-        flag        = LEAGUE_FLAGS.get(league_code, "🌍")
-        league_name = LEAGUES.get(league_code, "International / Friendlies")
+        flag        = LEAGUE_FLAGS.get(league_code, "🏆")
+        league_name = LEAGUES.get(league_code, "Football")
 
+        # On heavy days only show big leagues
         if heavy and league_code not in {
             "PL","PD","SA","BL1","FL1","CL","WC","EC","INTL"
         }:
@@ -582,9 +391,6 @@ def handle_matchday_preview(all_matches_today):
             lines.append(f"  ⚔️  {home} vs {away} — {time_str}")
         lines.append("")
 
-    if len(lines) <= 1:
-        return
-
     question = random.choice(MATCHDAY_QUESTIONS)
     lines.append(question)
     lines.append("")
@@ -599,7 +405,7 @@ def handle_matchday_preview(all_matches_today):
 # ── Lineups ───────────────────────────────────────────────────────
 def handle_lineups(match, league_name):
     match_id = match["id"]
-    key      = f"{match_id}_lineup"
+    key = f"{match_id}_lineup"
     if key in posted_lineups:
         return
 
@@ -611,14 +417,12 @@ def handle_lineups(match, league_name):
 
     def format_players(lineup):
         players = lineup.get("startXI", [])
-        if not players:
-            return "  Lineup not available"
         return "\n".join(
             f"  {i+1}. {p.get('player',{}).get('name','')}"
             for i, p in enumerate(players)
         )
 
-    flag     = get_flag(league_name)
+    flag     = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
     hashtags = get_hashtags(league_name)
     question = random.choice(LINEUP_QUESTIONS)
 
@@ -637,10 +441,10 @@ def handle_lineups(match, league_name):
 
 # ── Goals ─────────────────────────────────────────────────────────
 def handle_goals(match, league_name):
-    match_id            = match["id"]
+    match_id        = match["id"]
     home, away, hs, as_ = get_score(match)
-    flag                = get_flag(league_name)
-    hashtags            = get_hashtags(league_name)
+    flag            = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
+    hashtags        = get_hashtags(league_name)
 
     for goal in match.get("goals", []):
         scorer = goal.get("scorer", {}).get("name", "Unknown")
@@ -672,10 +476,10 @@ def handle_goals(match, league_name):
 
 # ── Red cards ─────────────────────────────────────────────────────
 def handle_red_cards(match, league_name):
-    match_id            = match["id"]
+    match_id        = match["id"]
     home, away, hs, as_ = get_score(match)
-    flag                = get_flag(league_name)
-    hashtags            = get_hashtags(league_name)
+    flag            = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
+    hashtags        = get_hashtags(league_name)
 
     for booking in match.get("bookings", []):
         if booking.get("card") == "RED_CARD":
@@ -702,15 +506,15 @@ def handle_red_cards(match, league_name):
 # ── Half time ─────────────────────────────────────────────────────
 def handle_halftime(match, league_name):
     match_id = match["id"]
-    key      = f"{match_id}_halftime"
+    key = f"{match_id}_halftime"
     if key in posted_halftimes:
         return
 
-    home     = match["homeTeam"]["shortName"]
-    away     = match["awayTeam"]["shortName"]
-    hs       = match["score"]["halfTime"]["home"] or 0
-    as_      = match["score"]["halfTime"]["away"] or 0
-    flag     = get_flag(league_name)
+    home = match["homeTeam"]["shortName"]
+    away = match["awayTeam"]["shortName"]
+    hs   = match["score"]["halfTime"]["home"] or 0
+    as_  = match["score"]["halfTime"]["away"] or 0
+    flag = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
     hashtags = get_hashtags(league_name)
 
     goal_lines = []
@@ -738,12 +542,12 @@ def handle_halftime(match, league_name):
 # ── Full time ─────────────────────────────────────────────────────
 def handle_fulltime(match, league_name):
     match_id = match["id"]
-    key      = f"{match_id}_fulltime"
+    key = f"{match_id}_fulltime"
     if key in posted_ft:
         return
 
     home, away, hs, as_ = get_score(match)
-    flag     = get_flag(league_name)
+    flag     = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
     hashtags = get_hashtags(league_name)
 
     goal_lines = []
@@ -781,7 +585,12 @@ def handle_fulltime(match, league_name):
         f"Follow {PAGE_NAME} for more football updates 🔔"
     )
     post_to_facebook(msg)
+
+    # Post next fixture
     handle_next_fixture(match, league_name)
+
+    # Generate reel
+    create_and_post_reel(match, league_name)
 
 # ── Next fixture ──────────────────────────────────────────────────
 def handle_next_fixture(match, league_name):
@@ -790,38 +599,35 @@ def handle_next_fixture(match, league_name):
     if key in posted_next_fixtures:
         return
 
-    # Only fetch next fixture for club league matches (not internationals)
-    code = get_league_code(league_name)
-    if code in ("INTL", ""):
-        return
-
-    home    = match["homeTeam"]["shortName"]
-    away    = match["awayTeam"]["shortName"]
-    home_id = match["homeTeam"].get("id", "")
-    away_id = match["awayTeam"].get("id", "")
-    flag    = get_flag(league_name)
+    home     = match["homeTeam"]["shortName"]
+    away     = match["awayTeam"]["shortName"]
+    home_id  = match["homeTeam"].get("id", "")
+    away_id  = match["awayTeam"].get("id", "")
+    flag     = LEAGUE_FLAGS.get(get_league_code(league_name), "🏆")
     hashtags = get_hashtags(league_name)
 
     home_next = None
     away_next = None
 
     try:
-        today  = datetime.utcnow().strftime("%Y-%m-%d")
-        future = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
-        data   = football_get(
-            f"/competitions/{code}/matches"
-            f"?dateFrom={today}&dateTo={future}&status=SCHEDULED"
-        )
-        if data:
-            for m in data.get("matches", []):
-                mhome = m["homeTeam"].get("id")
-                maway = m["awayTeam"].get("id")
-                if not home_next and (mhome == home_id or maway == home_id):
-                    home_next = m
-                if not away_next and (mhome == away_id or maway == away_id):
-                    away_next = m
-                if home_next and away_next:
-                    break
+        today     = datetime.utcnow().strftime("%Y-%m-%d")
+        future    = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+        code      = get_league_code(league_name)
+        if code:
+            data  = football_get(
+                f"/competitions/{code}/matches"
+                f"?dateFrom={today}&dateTo={future}&status=SCHEDULED"
+            )
+            if data:
+                for m in data.get("matches", []):
+                    mhome = m["homeTeam"].get("id")
+                    maway = m["awayTeam"].get("id")
+                    if not home_next and (mhome == home_id or maway == home_id):
+                        home_next = m
+                    if not away_next and (mhome == away_id or maway == away_id):
+                        away_next = m
+                    if home_next and away_next:
+                        break
     except Exception as e:
         print(f"[ERROR] Next fixture fetch failed: {e}")
 
@@ -860,18 +666,21 @@ def handle_next_fixture(match, league_name):
                posted_ft, posted_matchdays, posted_next_fixtures, posted_filler)
     post_to_facebook("\n".join(lines))
 
-# ── Filler ────────────────────────────────────────────────────────
+# ── Filler content for light matchdays ───────────────────────────
 def handle_filler(has_live_matches):
     global last_filler_time
     if has_live_matches:
-        return
+        return  # Never post filler during live matches
 
     now = time.time()
-    if now - last_filler_time < 1800:
+    if now - last_filler_time < 1800:  # 30 minutes between filler posts
         return
 
-    available = [p for p in FILLER_POSTS if p[:50] not in posted_filler]
+    # Find unposted filler
+    available = [p for p in FILLER_POSTS
+                 if p[:50] not in posted_filler]
     if not available:
+        # Reset if all posted
         posted_filler.clear()
         available = FILLER_POSTS
 
@@ -883,48 +692,18 @@ def handle_filler(has_live_matches):
                    posted_ft, posted_matchdays, posted_next_fixtures, posted_filler)
         print(f"[FILLER] Posted filler content.")
 
-# ── Process a single match ────────────────────────────────────────
-def process_match(match, league_name):
-    """Run all event handlers for one match."""
-    status = match.get("status")
-
-    # Lineups — 45 to 75 mins before kickoff
-    if status in ("TIMED", "SCHEDULED"):
-        kickoff_str = match.get("utcDate", "")
-        if kickoff_str:
-            try:
-                kickoff = datetime.strptime(kickoff_str, "%Y-%m-%dT%H:%M:%SZ")
-                now     = datetime.utcnow()
-                if timedelta(minutes=45) <= kickoff - now <= timedelta(minutes=75):
-                    handle_lineups(match, league_name)
-            except Exception:
-                pass
-
-    if status == "IN_PLAY":
-        handle_goals(match, league_name)
-        handle_red_cards(match, league_name)
-
-    if status == "PAUSED":
-        handle_halftime(match, league_name)
-
-    if status == "FINISHED":
-        handle_fulltime(match, league_name)
-
-# ── Main check cycle ──────────────────────────────────────────────
+# ── Main loop ─────────────────────────────────────────────────────
 matchday_posted_today = None
 
 def check_matches():
     global matchday_posted_today
     today = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # ── Step 1: Ensure we have today's intl fixture IDs (costs 1 req, once/day)
-    fetch_intl_fixture_ids_today()
-
     all_matches_today = {}
 
-    # ── Step 2: Fetch club league matches via football-data.org (free, unlimited)
-    for code in LEAGUES:
-        if code in ("WC", "EC", "INTL"):
+    # Check all league competitions via football-data.org
+    for code in list(LEAGUES.keys()):
+        if code == "INTL":
             continue
         data = football_get(
             f"/competitions/{code}/matches?dateFrom={today}&dateTo={today}"
@@ -934,70 +713,118 @@ def check_matches():
             if matches:
                 all_matches_today[code] = matches
 
-    # Also check WC and EC via football-data.org (they cover these free)
-    for code in ("WC", "EC"):
-        data = football_get(
-            f"/competitions/{code}/matches?dateFrom={today}&dateTo={today}"
-        )
-        if data:
-            matches = data.get("matches", [])
-            if matches:
-                all_matches_today[code] = matches
-
-    # ── Step 3: Get international matches
-    # Use live endpoint if any intl games should be live now
-    # otherwise use the full fixture list for status checks
-    intl_matches = []
-
-    if _intl_fixture_ids:
-        # Try live poll first (very cheap — 1 call covers all)
-        live_fixtures = get_live_intl_matches()
-        if live_fixtures:
-            intl_matches = [normalize_apif_fixture(f) for f in live_fixtures]
-        else:
-            # No live games right now — fetch full status for today's fixtures
-            intl_matches = get_all_intl_matches_today()
-
+    # Fetch international matches via API-Football
+    intl_matches = get_international_matches_today()
     if intl_matches:
         all_matches_today["INTL"] = intl_matches
         LEAGUES["INTL"]           = "International / Friendlies"
+        LEAGUE_FLAGS["INTL"]      = "🌍"
+        LEAGUE_HASHTAGS["INTL"]   = "#InternationalFootball #WorldCup2026 #Football"
 
-    # ── Step 4: Check if anything is live
+    # Check if any matches are currently live
     has_live = any(
         m.get("status") in ("IN_PLAY", "PAUSED")
         for matches in all_matches_today.values()
         for m in matches
     )
 
-    # ── Step 5: Post matchday preview once per day
+    # Post matchday preview once per day
     if matchday_posted_today != today:
         handle_matchday_preview(all_matches_today)
         matchday_posted_today = today
 
-    # ── Step 6: Process every match
+    # Process each match
     for code, matches in all_matches_today.items():
+        league_name = LEAGUES.get(code, "Football")
         for match in matches:
+            status = match.get("status")
+
+            # For API-Football matches get live events separately
+            if code == "INTL" and match.get("_apif_fixture_id"):
+                if status == "IN_PLAY":
+                    match = enrich_apif_match(match)
+                elif status == "FINISHED":
+                    match = enrich_apif_match(match)
+
+            # Get competition specific name for internationals
             if code == "INTL":
                 league_name = match.get("_comp_name", "International / Friendlies")
-            else:
-                league_name = LEAGUES.get(code, "Football")
-            process_match(match, league_name)
 
-    # ── Step 7: Post filler if nothing is live
+            # Lineups — 45 to 75 mins before kickoff
+            if status in ("TIMED", "SCHEDULED"):
+                kickoff_str = match.get("utcDate", "")
+                if kickoff_str:
+                    try:
+                        kickoff = datetime.strptime(kickoff_str, "%Y-%m-%dT%H:%M:%SZ")
+                        now = datetime.utcnow()
+                        if timedelta(minutes=45) <= kickoff - now <= timedelta(minutes=75):
+                            handle_lineups(match, league_name)
+                    except Exception:
+                        pass
+
+            # Live events
+            if status == "IN_PLAY":
+                handle_goals(match, league_name)
+                handle_red_cards(match, league_name)
+
+            # Half time
+            if status == "PAUSED":
+                handle_halftime(match, league_name)
+
+            # Full time
+            if status == "FINISHED":
+                handle_fulltime(match, league_name)
+
+    # Filler on light/no matchdays when nothing is live
     if not has_live:
         handle_filler(has_live)
 
-    # ── Step 8: Log API-Football budget
-    if APIFOOTBALL_KEY:
-        print(f"[BUDGET] API-Football used today: {apif_requests_today}/90 requests")
 
-# ── Run ───────────────────────────────────────────────────────────
+def enrich_apif_match(match):
+    """Fetch goals and events for a live/finished API-Football match."""
+    fixture_id = match.get("_apif_fixture_id")
+    if not fixture_id:
+        return match
+
+    data = apifootball_get(f"/fixtures/events?fixture={fixture_id}")
+    if not data:
+        return match
+
+    goals    = []
+    bookings = []
+
+    for event in data.get("response", []):
+        etype  = event.get("type", "").lower()
+        detail = event.get("detail", "").lower()
+        minute = event.get("time", {}).get("elapsed", "?")
+        player = event.get("player", {}).get("name", "Unknown")
+        assist = event.get("assist", {})
+        team   = event.get("team", {}).get("name", "")
+
+        if etype == "goal" and "own" not in detail and "missed" not in detail:
+            goals.append({
+                "minute": minute,
+                "scorer": {"name": player},
+                "assist": {"name": assist.get("name", "")} if assist else {},
+                "team":   {"shortName": team},
+            })
+        elif etype == "card" and "red" in detail:
+            bookings.append({
+                "minute": minute,
+                "card":   "RED_CARD",
+                "player": {"name": player},
+                "team":   {"shortName": team},
+            })
+
+    match["goals"]    = goals
+    match["bookings"] = bookings
+    return match
+
 def run():
     print(f"{PAGE_NAME} Match Bot started...")
-    print(f"Monitoring: {', '.join(list(LEAGUES.values())[:6])} + internationals")
+    print(f"Monitoring: {', '.join(list(LEAGUES.values())[:6])} + more")
     print("Posting: Matchday preview, Lineups, Goals + Assists,")
-    print("         Red Cards, Half Time, Full Time, Next Fixture, Filler")
-    print(f"API-Football budget: 90 calls/day max (free plan safe)\n")
+    print("         Red Cards, Half Time, Full Time, Next Fixture, Filler\n")
 
     while True:
         try:
