@@ -12,11 +12,11 @@ FB_TOKEN   = os.getenv("FB_TOKEN")
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 
 # ── Canvas settings ──────────────────────────────────────────────
-WIDTH, HEIGHT = 1080, 1920  # 9:16 vertical reel format
+WIDTH, HEIGHT = 1080, 1920  # 9:16 vertical reel format — Facebook recommended
 FPS = 30
-DURATION_PER_GOAL = 2.5     # seconds per goal reveal
-INTRO_DURATION    = 2.0     # seconds for team names intro
-OUTRO_DURATION    = 3.0     # seconds for final scoreline
+DURATION_PER_GOAL = 2.5
+INTRO_DURATION    = 2.0
+OUTRO_DURATION    = 3.0
 
 # ── Colors ───────────────────────────────────────────────────────
 BG_COLOR       = (15, 15, 25)       # dark navy background
@@ -206,9 +206,23 @@ def generate_reel(home, away, home_score, away_score, goals, league_name, output
 
     # Concatenate all clips
     video = concatenate_videoclips(clips, method="compose")
-    video.write_videofile(output_path, fps=FPS, codec="libx264",
-                          audio=False, verbose=False, logger=None)
-    print(f"[REEL] Generated: {output_path}")
+    video.write_videofile(
+        output_path,
+        fps=FPS,
+        codec="libx264",
+        audio=False,
+        verbose=False,
+        logger=None,
+        ffmpeg_params=[
+            "-vb",       "8000k",
+            "-preset",   "slow",
+            "-crf",      "18",
+            "-pix_fmt",  "yuv420p",
+            "-movflags", "+faststart",
+            "-vf",       "scale=1080:1920:flags=lanczos",
+        ]
+    )
+    print(f"[REEL] Generated at high quality: {output_path}")
     return output_path
 
 
