@@ -58,18 +58,18 @@ def draw_background(draw, width, height):
 
 
 def draw_branding(draw, width, height):
-    """Draw Goal Score ZFR branding at top and bottom."""
+    """Draw ScoreLine Live branding at top and bottom."""
     font_brand = get_font(42, bold=True)
     font_small = get_font(28)
 
     # Top branding
-    brand_text = "GOAL SCORE ZFR"
+    brand_text = "SCORELINE LIVE"
     bbox = draw.textbbox((0, 0), brand_text, font=font_brand)
     bw = bbox[2] - bbox[0]
     draw.text(((width - bw) // 2, 30), brand_text, font=font_brand, fill=ACCENT_COLOR)
 
     # Bottom follow text
-    follow_text = "Follow Goal Score ZFR for live updates"
+    follow_text = "Follow ScoreLine Live for live updates"
     bbox2 = draw.textbbox((0, 0), follow_text, font=font_small)
     fw = bbox2[2] - bbox2[0]
     draw.text(((width - fw) // 2, height - 60), follow_text,
@@ -297,7 +297,7 @@ def create_and_post_reel(match, league_name):
             f"🏁 {home} {hs}-{as_} {away}\n\n"
             f"{result}\n\n"
             f"🏆 {league_name}\n\n"
-            f"Follow Goal Score ZFR for live updates"
+            f"Follow ScoreLine Live for live updates"
         )
 
         post_reel_to_facebook(output_path, caption)

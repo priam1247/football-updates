@@ -17,22 +17,25 @@ FB_POST_URL    = f"https://graph.facebook.com/{FB_PAGE_ID}/feed"
 FOOTBALL_BASE  = "https://api.football-data.org/v4"
 NEWS_STATE_FILE = "news_state.json"
 
-# ── All leagues for matchday detection ───────────────────────────
+# ── All leagues + internationals for matchday detection ──────────
 ALL_LEAGUES = [
     "PL","PD","SA","CL","BL1","FL1","DED","ELC","PPL","BSA","WC","EC"
 ]
 
-# ── 2 trusted sources only ────────────────────────────────────────
+# ── 5 trusted sources — rotating ─────────────────────────────────
 RSS_FEEDS = [
-    {"name": "Goal.com",   "url": "https://www.goal.com/en/feeds/news?fmt=rss"},
-    {"name": "Sky Sports", "url": "https://www.skysports.com/rss/0,20514,11095,00.xml"},
+    {"name": "BBC Sport",   "url": "https://feeds.bbci.co.uk/sport/football/rss.xml"},
+    {"name": "Sky Sports",  "url": "https://www.skysports.com/rss/0,20514,11095,00.xml"},
+    {"name": "Telegraph",   "url": "https://www.telegraph.co.uk/football/rss.xml"},
+    {"name": "Marca",       "url": "https://e00-marca.uecdn.es/rss/en/index.xml"},
+    {"name": "TalkSPORT",   "url": "https://talksport.com/feed"},
 ]
 
 # ── Category detection ────────────────────────────────────────────
 CATEGORIES = {
     "BREAKING": {
         "emoji": "🚨",
-        "keywords": ["breaking", "just in", "urgent", "alert"],
+        "keywords": ["breaking", "just in", "urgent", "alert", "exclusive"],
         "priority": True
     },
     "TRANSFER": {
@@ -56,14 +59,14 @@ CATEGORIES = {
     },
     "SACKED": {
         "emoji": "🔫",
-        "keywords": ["sacked", "fired", "dismissed", "leaves", "parts ways",
+        "keywords": ["sacked", "fired", "dismissed", "parts ways",
                      "relieved of", "resign", "resignation"],
-        "priority": False
+        "priority": True
     },
     "OFFICIAL": {
         "emoji": "✅",
         "keywords": ["official", "confirmed", "announced", "unveil", "unveiled",
-                     "completed", "done", "sealed"],
+                     "completed", "done deal", "sealed", "here we go"],
         "priority": True
     },
     "BANNED": {
@@ -75,22 +78,31 @@ CATEGORIES = {
     "APPOINTED": {
         "emoji": "👔",
         "keywords": ["appointed", "new manager", "new coach", "takes charge",
-                     "named as", "hired"],
+                     "named as", "hired", "unveiled as"],
+        "priority": True
+    },
+    "INTERNATIONAL": {
+        "emoji": "🌍",
+        "keywords": ["international", "world cup", "euro", "nations league",
+                     "friendly", "national team", "squad called"],
         "priority": False
     },
 }
 
-# Quality keywords — only post real news not opinions
+# Quality — only real news
 QUALITY_KEYWORDS = [
     "transfer", "sign", "injury", "contract", "sack", "appoint", "ban",
     "suspend", "confirm", "official", "breaking", "deal", "free agent",
     "loan", "fee", "bid", "offer", "agree", "done", "medical", "unveil",
     "leave", "join", "depart", "arrive", "manager", "coach", "squad",
     "premier league", "la liga", "serie a", "bundesliga", "champions league",
-    "ligue 1", "eredivisie", "world cup", "euro",
+    "ligue 1", "eredivisie", "world cup", "euro", "international", "friendly",
+    "national team", "nations league",
     "barcelona", "real madrid", "manchester", "liverpool", "arsenal",
     "chelsea", "juventus", "milan", "inter", "bayern", "dortmund",
-    "psg", "atletico", "tottenham", "newcastle", "city", "united"
+    "psg", "atletico", "tottenham", "newcastle", "city", "united",
+    "england", "france", "spain", "germany", "brazil", "argentina",
+    "portugal", "italy", "netherlands", "africa", "malawi"
 ]
 
 # Filler to skip
@@ -98,8 +110,8 @@ FILLER_KEYWORDS = [
     "5 things", "player ratings", "fan reaction", "remember when",
     "best goals", "worst goals", "quiz", "ranked", "every goal",
     "watch:", "video:", "gallery:", "photos:", "in pictures",
-    "predicted", "how to watch", "tv channel", "live stream",
-    "preview:", "vs:", "betting odds"
+    "how to watch", "tv channel", "betting odds", "predicted lineup",
+    "vs preview", "match preview", "ones to watch"
 ]
 
 # Entity names for deduplication
@@ -108,7 +120,7 @@ PLAYER_NAMES = [
     "odegaard", "de bruyne", "kane", "lewandowski", "messi", "ronaldo",
     "neymar", "rashford", "fernandes", "rice", "rodri", "pedri",
     "yamal", "gavi", "ter stegen", "alisson", "ederson", "courtois",
-    "modric", "kroos", "benzema", "griezmann", "dembele", "camavinga"
+    "modric", "benzema", "griezmann", "dembele", "camavinga", "valverde"
 ]
 
 CLUB_NAMES = [
@@ -119,10 +131,9 @@ CLUB_NAMES = [
 ]
 
 # ── Free template rewriter ────────────────────────────────────────
-# Journalist phrases to clean up
 CLEAN_PHRASES = [
-    (r"'[^']*'\s*[-–—:]\s*", ""),           # Remove 'quote' - at start
-    (r'"[^"]*"\s*[-–—:]\s*', ""),           # Remove "quote" - at start
+    (r"'[^']*'\s*[-–—:]\s*", ""),
+    (r'"[^"]*"\s*[-–—:]\s*', ""),
     (r"\baccording to reports\b", ""),
     (r"\bit has been claimed that\b", ""),
     (r"\bit is understood that\b", ""),
@@ -133,73 +144,48 @@ CLEAN_PHRASES = [
     (r"\breport:\s*", ""),
     (r"\breports:\s*", ""),
     (r"\bwatch:\s*", ""),
-    (r"\banalysis:\s*", ""),
-    (r"\[\d+\]", ""),                        # Remove footnote numbers
-    (r"\s{2,}", " "),                        # Clean double spaces
+    (r"\[\d+\]", ""),
+    (r"\s{2,}", " "),
 ]
 
-# Simple word replacements for plain English
 WORD_REPLACEMENTS = [
     ("depart", "leave"),
     ("terminate", "end"),
     ("contractual agreement", "contract"),
     ("upon expiration of", "when his contract ends at"),
     ("set to", "will"),
-    ("ahead of", "better than"),
     ("amid", "during"),
     ("following", "after"),
     ("securing", "getting"),
-    ("obtaining", "getting"),
-    ("potential", "possible"),
-    ("currently", "now"),
-    ("subsequently", "then"),
-    ("previously", "before"),
     ("approximately", "about"),
     ("remainder of", "rest of"),
     ("football club", ""),
-    ("fc ", ""),
 ]
 
 def simplify_title(title):
-    """Clean journalist language and simplify to plain English."""
     text = title.strip()
-
-    # Apply regex cleanups
     for pattern, replacement in CLEAN_PHRASES:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-
-    # Apply word replacements
     for old, new in WORD_REPLACEMENTS:
         text = re.sub(r'\b' + re.escape(old) + r'\b', new, text,
                       flags=re.IGNORECASE)
+    return text.strip().capitalize()
 
-    # Capitalize first letter
-    text = text.strip().capitalize()
-    return text
-
-def build_simple_sentence(title, desc, category):
-    """Build a simple 1-3 sentence explanation from title and description."""
+def build_simple_sentence(title, desc):
     clean = simplify_title(title)
-    text = clean
-
-    # Add context from description if available
+    text  = clean
     if desc:
         desc_clean = re.sub(r'<[^>]+>', '', desc).strip()
         desc_clean = re.sub(r'\s+', ' ', desc_clean)
-        # Only use first sentence of description
-        first_sentence = desc_clean.split('.')[0].strip()
-        if first_sentence and len(first_sentence) > 20 and first_sentence.lower() not in clean.lower():
-            # Simplify the description sentence too
+        first = desc_clean.split('.')[0].strip()
+        if first and len(first) > 20 and first.lower() not in clean.lower():
             for old, new in WORD_REPLACEMENTS:
-                first_sentence = re.sub(r'\b' + re.escape(old) + r'\b',
-                                        new, first_sentence, flags=re.IGNORECASE)
-            if len(text) + len(first_sentence) < 280:
-                text = f"{clean}. {first_sentence.capitalize()}"
-
-    # Ensure ends with period
+                first = re.sub(r'\b' + re.escape(old) + r'\b', new,
+                               first, flags=re.IGNORECASE)
+            if len(text) + len(first) < 280:
+                text = f"{clean}. {first.capitalize()}"
     if text and not text.endswith('.'):
         text += '.'
-
     return text
 
 # ── Persistent state ──────────────────────────────────────────────
@@ -214,14 +200,14 @@ def load_news_state():
                     data.get("posts_today", 0),
                     data.get("last_reset_date", ""),
                     list(data.get("recent_entities", [])),
-                    data.get("last_source", ""),
+                    data.get("source_index", 0),
                 )
         except Exception:
             pass
-    return set(), 0, 0, "", [], ""
+    return set(), 0, 0, "", [], 0
 
 def save_news_state(posted_keys, last_post_time, posts_today,
-                    last_reset_date, recent_entities, last_source):
+                    last_reset_date, recent_entities, source_index):
     with open(NEWS_STATE_FILE, "w") as f:
         json.dump({
             "posted_keys":     list(posted_keys),
@@ -229,12 +215,12 @@ def save_news_state(posted_keys, last_post_time, posts_today,
             "posts_today":     posts_today,
             "last_reset_date": last_reset_date,
             "recent_entities": list(recent_entities)[-100:],
-            "last_source":     last_source,
+            "source_index":    source_index,
         }, f)
 
 (posted_keys, last_post_time,
  posts_today, last_reset_date,
- recent_entities, last_source) = load_news_state()
+ recent_entities, source_index) = load_news_state()
 
 # ── Helpers ───────────────────────────────────────────────────────
 def clean_title(title):
@@ -258,15 +244,14 @@ def is_quality_story(title, desc=""):
 
 def extract_entities(title):
     text = title.lower()
-    return [name for name in PLAYER_NAMES + CLUB_NAMES if name in text]
+    return [n for n in PLAYER_NAMES + CLUB_NAMES if n in text]
 
 def is_duplicate_entity(title):
     entities = extract_entities(title)
     now = time.time()
     for entry in recent_entities:
         if now - entry.get("time", 0) < 14400:
-            overlap = set(entities) & set(entry.get("entities", []))
-            if len(overlap) >= 1 and len(entities) > 0:
+            if set(entities) & set(entry.get("entities", [])) and entities:
                 return True
     return False
 
@@ -276,7 +261,10 @@ def add_entity_record(title):
         recent_entities.append({"time": time.time(), "entities": entities})
 
 def is_matchday():
+    """Check league matches AND international friendlies."""
     today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    # Check all league competitions
     for code in ALL_LEAGUES:
         try:
             headers = {"X-Auth-Token": FOOTBALL_KEY}
@@ -286,9 +274,24 @@ def is_matchday():
                 headers=headers, timeout=8
             )
             if r.status_code == 200 and r.json().get("matches"):
+                print(f"[NEWS] Matchday detected: {code}")
                 return True
         except Exception:
             pass
+
+    # Also check general matches endpoint for friendlies
+    try:
+        headers = {"X-Auth-Token": FOOTBALL_KEY}
+        r = requests.get(
+            f"{FOOTBALL_BASE}/matches?dateFrom={today}&dateTo={today}",
+            headers=headers, timeout=8
+        )
+        if r.status_code == 200 and r.json().get("matches"):
+            print(f"[NEWS] International/friendly matches detected today")
+            return True
+    except Exception:
+        pass
+
     return False
 
 def fetch_rss(url):
@@ -298,7 +301,7 @@ def fetch_rss(url):
         if r.status_code == 200:
             return ET.fromstring(r.content)
     except Exception as e:
-        print(f"[ERROR] RSS fetch failed: {e}")
+        print(f"[ERROR] RSS fetch failed for {url}: {e}")
     return None
 
 def post_to_facebook(message):
@@ -314,12 +317,12 @@ def format_post(category, emoji, body, source):
     return (
         f"{emoji} {category} | {body}\n\n"
         f"📡 Source: {source}\n\n"
-        f"Follow Goal Score ZFR for updates"
+        f"Follow ScoreLine Live for updates 🔔"
     )
 
 # ── Main news checker ─────────────────────────────────────────────
 def check_news():
-    global last_post_time, posts_today, last_reset_date, last_source
+    global last_post_time, posts_today, last_reset_date, source_index
 
     # Reset daily counter
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
@@ -333,34 +336,74 @@ def check_news():
         print(f"[NEWS] Daily limit reached (30/30).")
         return
 
-    # Auto detect matchday and set gap
-    matchday    = is_matchday()
-    gap         = 7200 if matchday else 2700
-    gap_label   = "2 hrs (matchday)" if matchday else "45 mins (no games)"
-    now_ts      = time.time()
-    elapsed     = now_ts - last_post_time
-    remaining   = int((gap - elapsed) / 60)
+    now_ts  = time.time()
+    elapsed = now_ts - last_post_time
 
-    if elapsed < gap:
-        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] "
-              f"Next news in {remaining} mins ({gap_label})")
-        return
-
-    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Checking news feeds...")
-
-    # Source rotation
-    feeds_ordered = RSS_FEEDS.copy()
-    if last_source == RSS_FEEDS[0]["name"]:
-        feeds_ordered = [RSS_FEEDS[1], RSS_FEEDS[0]]
-
-    for feed in feeds_ordered:
+    # First check ALL sources for BREAKING/OFFICIAL/SACKED/APPOINTED
+    # These post within 15 minutes regardless of gap
+    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Checking for breaking news...")
+    for feed in RSS_FEEDS:
         tree = fetch_rss(feed["url"])
         if tree is None:
             continue
-
         items = (tree.findall(".//item") or
                  tree.findall(".//{http://www.w3.org/2005/Atom}entry"))
+        for item in items[:5]:
+            title_el = item.find("title")
+            if title_el is None:
+                continue
+            title = (title_el.text or "").strip()
+            if not title:
+                continue
+            desc_el = item.find("description")
+            desc = re.sub(r'<[^>]+>', '',
+                          (desc_el.text or "") if desc_el is not None else "").strip()
+            category, emoji, is_priority = detect_category(title, desc)
+            if not is_priority:
+                continue
+            if not is_quality_story(title, desc):
+                continue
+            key = clean_title(title)
+            if key in posted_keys:
+                continue
+            if is_duplicate_entity(title):
+                posted_keys.add(key)
+                continue
+            # Post breaking news immediately
+            body = build_simple_sentence(title, desc)
+            msg  = format_post(category, emoji, body, feed["name"])
+            if post_to_facebook(msg):
+                posted_keys.add(key)
+                add_entity_record(title)
+                last_post_time = time.time()
+                posts_today += 1
+                save_news_state(posted_keys, last_post_time, posts_today,
+                                last_reset_date, recent_entities, source_index)
+                print(f"[NEWS] BREAKING posted ({posts_today}/30). Source: {feed['name']}")
+                return
 
+    # Regular news — check time gap
+    matchday  = is_matchday()
+    gap       = 7200 if matchday else 2700
+    gap_label = "2 hrs (matchday)" if matchday else "45 mins (no games)"
+    remaining = int((gap - elapsed) / 60)
+
+    if elapsed < gap:
+        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] "
+              f"Next regular news in {remaining} mins ({gap_label})")
+        return
+
+    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Checking regular news...")
+
+    # True round-robin rotation — cycle through all 5 sources evenly
+    feeds_to_try = (RSS_FEEDS[source_index:] + RSS_FEEDS[:source_index])
+
+    for i, feed in enumerate(feeds_to_try):
+        tree = fetch_rss(feed["url"])
+        if tree is None:
+            continue
+        items = (tree.findall(".//item") or
+                 tree.findall(".//{http://www.w3.org/2005/Atom}entry"))
         for item in items[:8]:
             title_el = item.find("title")
             if title_el is None:
@@ -368,48 +411,29 @@ def check_news():
             title = (title_el.text or "").strip()
             if not title:
                 continue
-
             desc_el = item.find("description")
             desc = re.sub(r'<[^>]+>', '',
                           (desc_el.text or "") if desc_el is not None else "").strip()
-
-            # Quality check
             if not is_quality_story(title, desc):
                 continue
-
-            # Exact duplicate check
             key = clean_title(title)
             if key in posted_keys:
                 continue
-
-            # Entity duplicate check
             if is_duplicate_entity(title):
-                print(f"[SKIP] Same story: {title[:50]}")
                 posted_keys.add(key)
                 continue
-
-            # Detect category
-            category, emoji, is_priority = detect_category(title, desc)
-
-            # Breaking/Official skips the time gap
-            if not is_priority and elapsed < gap:
-                continue
-
-            # Free template rewrite — simple English
-            body = build_simple_sentence(title, desc, category)
-
-            # Format and post
-            msg = format_post(category, emoji, body, feed["name"])
-            success = post_to_facebook(msg)
-
-            if success:
+            category, emoji, _ = detect_category(title, desc)
+            body = build_simple_sentence(title, desc)
+            msg  = format_post(category, emoji, body, feed["name"])
+            if post_to_facebook(msg):
                 posted_keys.add(key)
                 add_entity_record(title)
                 last_post_time = time.time()
-                last_source = feed["name"]
-                posts_today += 1
+                posts_today   += 1
+                # Advance rotation to next source
+                source_index = (source_index + i + 1) % len(RSS_FEEDS)
                 save_news_state(posted_keys, last_post_time, posts_today,
-                                last_reset_date, recent_entities, last_source)
+                                last_reset_date, recent_entities, source_index)
                 print(f"[NEWS] Posted ({posts_today}/30). "
                       f"Category: {category}. Source: {feed['name']}")
                 return
@@ -418,11 +442,12 @@ def check_news():
 
 # ── Run ───────────────────────────────────────────────────────────
 def run():
-    print("Goal Score ZFR News Bot started...")
-    print("Sources: Goal.com / Sky Sports (alternating)")
-    print("Rewriter: Free template engine")
-    print("Smart matchday detection: ON")
-    print("Duplicate filter: ON\n")
+    print("ScoreLine Live News Bot started...")
+    print("Sources: BBC Sport, Sky Sports, Telegraph, Marca, TalkSPORT")
+    print("Breaking news: posts within 15 minutes")
+    print("Regular news: 45 mins (no games) / 2 hrs (matchday)")
+    print("International friendlies: detected automatically")
+    print("Duplicate filter: ON — source rotation: ON\n")
 
     while True:
         try:
