@@ -131,59 +131,90 @@ CLUB_NAMES = [
 ]
 
 # ── Free template rewriter ────────────────────────────────────────
+# Remove journalist fluff — keep all names intact
 CLEAN_PHRASES = [
-    (r"'[^']*'\s*[-–—:]\s*", ""),
-    (r'"[^"]*"\s*[-–—:]\s*', ""),
-    (r"\baccording to reports\b", ""),
+    (r"'[^']*'\s*[-–—:]\s*", ""),          # Remove 'quote' - prefix
+    (r'"[^"]*"\s*[-–—:]\s*', ""),           # Remove "quote" - prefix
+    (r"\baccording to reports\b[,]?", ""),
     (r"\bit has been claimed that\b", ""),
     (r"\bit is understood that\b", ""),
     (r"\bit is believed that\b", ""),
-    (r"\bsources have told\b.*", ""),
+    (r"\bsources have told\b.*?(?=\.|$)", ""),
     (r"\bexclusive:\s*", ""),
     (r"\bbreaking:\s*", ""),
     (r"\breport:\s*", ""),
     (r"\breports:\s*", ""),
     (r"\bwatch:\s*", ""),
+    (r"\banalysis:\s*", ""),
     (r"\[\d+\]", ""),
     (r"\s{2,}", " "),
 ]
 
+# Replace complex words with simple ones — NEVER replace names
 WORD_REPLACEMENTS = [
-    ("depart", "leave"),
-    ("terminate", "end"),
+    ("depart from",           "leave"),
+    ("departs from",          "leaves"),
+    ("departed from",         "left"),
+    ("terminate his contract", "end his contract"),
     ("contractual agreement", "contract"),
-    ("upon expiration of", "when his contract ends at"),
-    ("set to", "will"),
-    ("amid", "during"),
-    ("following", "after"),
-    ("securing", "getting"),
-    ("approximately", "about"),
-    ("remainder of", "rest of"),
-    ("football club", ""),
+    ("upon expiration of his","when his contract at"),
+    ("upon expiration of her","when her contract at"),
+    ("is set to",             "will"),
+    ("are set to",            "will"),
+    ("amid growing",          "as"),
+    ("following the",         "after the"),
+    ("securing a",            "getting a"),
+    ("approximately",         "about"),
+    ("remainder of the",      "rest of the"),
+    ("in the coming weeks",   "soon"),
+    ("in the near future",    "soon"),
+    ("it has emerged that",   ""),
+    ("has emerged that",      ""),
 ]
 
 def simplify_title(title):
+    """Clean journalist fluff but keep all player and club names exactly."""
     text = title.strip()
     for pattern, replacement in CLEAN_PHRASES:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     for old, new in WORD_REPLACEMENTS:
         text = re.sub(r'\b' + re.escape(old) + r'\b', new, text,
                       flags=re.IGNORECASE)
-    return text.strip().capitalize()
+    # Clean up double spaces and capitalize first letter only
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    if text:
+        text = text[0].upper() + text[1:]
+    return text
 
 def build_simple_sentence(title, desc):
+    """
+    Build a clean 1-2 sentence post in simple English.
+    Keep all player names, club names and facts exactly as they are.
+    Only remove journalist language and replace complex words.
+    """
     clean = simplify_title(title)
     text  = clean
+
+    # Add one sentence from description if it adds new information
     if desc:
         desc_clean = re.sub(r'<[^>]+>', '', desc).strip()
         desc_clean = re.sub(r'\s+', ' ', desc_clean)
-        first = desc_clean.split('.')[0].strip()
-        if first and len(first) > 20 and first.lower() not in clean.lower():
-            for old, new in WORD_REPLACEMENTS:
-                first = re.sub(r'\b' + re.escape(old) + r'\b', new,
-                               first, flags=re.IGNORECASE)
-            if len(text) + len(first) < 280:
-                text = f"{clean}. {first.capitalize()}"
+        # Take first meaningful sentence
+        sentences = [s.strip() for s in desc_clean.split('.') if len(s.strip()) > 20]
+        if sentences:
+            first = sentences[0]
+            # Only add if it contains new information not already in title
+            title_words = set(clean.lower().split())
+            first_words = set(first.lower().split())
+            overlap = len(title_words & first_words) / max(len(first_words), 1)
+            if overlap < 0.6:  # Less than 60% overlap = new info
+                for old, new in WORD_REPLACEMENTS:
+                    first = re.sub(r'\b' + re.escape(old) + r'\b', new,
+                                   first, flags=re.IGNORECASE)
+                first = first.strip()
+                if first and len(text) + len(first) < 280:
+                    text = f"{clean}. {first[0].upper() + first[1:]}"
+
     if text and not text.endswith('.'):
         text += '.'
     return text

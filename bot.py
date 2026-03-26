@@ -9,14 +9,16 @@ from reel_generator import create_and_post_reel
 
 load_dotenv()
 
-FB_TOKEN     = os.getenv("FB_TOKEN")
-FB_PAGE_ID   = os.getenv("FB_PAGE_ID")
-FOOTBALL_KEY = os.getenv("FOOTBALL_KEY")
+FB_TOKEN       = os.getenv("FB_TOKEN")
+FB_PAGE_ID     = os.getenv("FB_PAGE_ID")
+FOOTBALL_KEY   = os.getenv("FOOTBALL_KEY")
+APIFOOTBALL_KEY = os.getenv("APIFOOTBALL_KEY")  # API-Football for internationals
 
-FOOTBALL_BASE = "https://api.football-data.org/v4"
-FB_POST_URL   = f"https://graph.facebook.com/{FB_PAGE_ID}/feed"
-STATE_FILE    = "match_state.json"
-PAGE_NAME     = "ScoreLine Live"
+FOOTBALL_BASE   = "https://api.football-data.org/v4"
+APIFOOTBALL_BASE = "https://v3.football.api-sports.io"
+FB_POST_URL     = f"https://graph.facebook.com/{FB_PAGE_ID}/feed"
+STATE_FILE      = "match_state.json"
+PAGE_NAME       = "ScoreLine Live"
 
 # ── All leagues ───────────────────────────────────────────────────
 LEAGUES = {
@@ -197,6 +199,132 @@ def football_get(path):
     except Exception as e:
         print(f"[ERROR] API request failed: {e}")
     return None
+
+def apifootball_get(path):
+    """Fetch from API-Football (for internationals and friendlies)."""
+    if not APIFOOTBALL_KEY:
+        return None
+    headers = {
+        "x-rapidapi-host": "v3.football.api-sports.io",
+        "x-rapidapi-key":  APIFOOTBALL_KEY,
+    }
+    try:
+        r = requests.get(f"{APIFOOTBALL_BASE}{path}", headers=headers, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        print(f"[ERROR] API-Football request failed: {e}")
+    return None
+
+def get_international_matches_today():
+    """
+    Fetch today's international matches from API-Football.
+    Covers World Cup qualifiers, Nations League, friendlies, continental qualifiers.
+    Returns list of normalized match dicts compatible with our existing handlers.
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    data  = apifootball_get(f"/fixtures?date={today}&type=international")
+    matches = []
+
+    if not data:
+        # Fallback — fetch all fixtures today and filter international ones
+        data = apifootball_get(f"/fixtures?date={today}")
+
+    if not data:
+        return matches
+
+    # International competition keywords
+    INTL_KEYWORDS = [
+        "world cup", "qualification", "qualifier", "nations league",
+        "friendly", "international", "continental", "copa", "afcon",
+        "euro", "gold cup", "concacaf", "afc", "caf", "conmebol",
+        "uefa", "fifa", "playoff"
+    ]
+
+    for fixture in data.get("response", []):
+        league_name = fixture.get("league", {}).get("name", "").lower()
+        league_type = fixture.get("league", {}).get("type", "").lower()
+
+        is_intl = (
+            "cup" in league_type or
+            "international" in league_type or
+            any(kw in league_name for kw in INTL_KEYWORDS)
+        )
+
+        if not is_intl:
+            continue
+
+        # Normalize to match our existing format
+        fix      = fixture.get("fixture", {})
+        teams    = fixture.get("teams", {})
+        goals    = fixture.get("goals", {})
+        score    = fixture.get("score", {})
+        status   = fix.get("status", {}).get("short", "")
+
+        # Map API-Football status to our status codes
+        status_map = {
+            "NS":  "SCHEDULED",
+            "TBD": "TIMED",
+            "1H":  "IN_PLAY",
+            "2H":  "IN_PLAY",
+            "HT":  "PAUSED",
+            "FT":  "FINISHED",
+            "AET": "FINISHED",
+            "PEN": "FINISHED",
+            "PST": "POSTPONED",
+            "CANC": "CANCELLED",
+        }
+
+        norm_status = status_map.get(status, "SCHEDULED")
+
+        ht_home = score.get("halftime", {}).get("home")
+        ht_away = score.get("halftime", {}).get("away")
+        ft_home = goals.get("home")
+        ft_away = goals.get("away")
+
+        comp_name = fixture.get("league", {}).get("name", "International")
+        flag_map  = {
+            "World Cup": "🌍", "UEFA": "🇪🇺", "AFCON": "🌍",
+            "CONCACAF": "🌎", "Copa America": "🌎", "Nations League": "🏆",
+        }
+        comp_flag = next(
+            (v for k, v in flag_map.items() if k.lower() in comp_name.lower()), "🌍"
+        )
+
+        normalized = {
+            "id":       f"apif_{fix.get('id', '')}",
+            "utcDate":  fix.get("date", ""),
+            "status":   norm_status,
+            "competition": {
+                "code": "INTL",
+                "name": comp_name,
+                "flag": comp_flag,
+            },
+            "homeTeam": {
+                "id":        teams.get("home", {}).get("id", ""),
+                "name":      teams.get("home", {}).get("name", ""),
+                "shortName": teams.get("home", {}).get("name", ""),
+            },
+            "awayTeam": {
+                "id":        teams.get("away", {}).get("id", ""),
+                "name":      teams.get("away", {}).get("name", ""),
+                "shortName": teams.get("away", {}).get("name", ""),
+            },
+            "score": {
+                "halfTime": {"home": ht_home, "away": ht_away},
+                "fullTime": {"home": ft_home, "away": ft_away},
+            },
+            "goals":    [],   # API-Football goals need separate call
+            "bookings": [],
+            "lineups":  [],
+            "_apif_fixture_id": fix.get("id", ""),
+            "_comp_name": comp_name,
+            "_comp_flag": comp_flag,
+        }
+        matches.append(normalized)
+
+    print(f"[INTL] Found {len(matches)} international matches today via API-Football")
+    return matches
 
 def post_to_facebook(message):
     payload = {"message": message, "access_token": FB_TOKEN}
@@ -573,8 +701,10 @@ def check_matches():
 
     all_matches_today = {}
 
-    # Check all league competitions
-    for code in LEAGUES:
+    # Check all league competitions via football-data.org
+    for code in list(LEAGUES.keys()):
+        if code == "INTL":
+            continue
         data = football_get(
             f"/competitions/{code}/matches?dateFrom={today}&dateTo={today}"
         )
@@ -583,21 +713,13 @@ def check_matches():
             if matches:
                 all_matches_today[code] = matches
 
-    # Check general endpoint for internationals and friendlies
-    intl_data = football_get(f"/matches?dateFrom={today}&dateTo={today}")
-    if intl_data:
-        for match in intl_data.get("matches", []):
-            comp_code = match.get("competition", {}).get("code", "")
-            if comp_code not in LEAGUES:
-                if "INTL" not in all_matches_today:
-                    all_matches_today["INTL"] = []
-                    LEAGUES["INTL"]      = "International / Friendlies"
-                    LEAGUE_FLAGS["INTL"] = "🌍"
-                    LEAGUE_HASHTAGS["INTL"] = "#InternationalFootball #WorldCup2026"
-                # Avoid duplicates
-                existing_ids = {m["id"] for m in all_matches_today["INTL"]}
-                if match["id"] not in existing_ids:
-                    all_matches_today["INTL"].append(match)
+    # Fetch international matches via API-Football
+    intl_matches = get_international_matches_today()
+    if intl_matches:
+        all_matches_today["INTL"] = intl_matches
+        LEAGUES["INTL"]           = "International / Friendlies"
+        LEAGUE_FLAGS["INTL"]      = "🌍"
+        LEAGUE_HASHTAGS["INTL"]   = "#InternationalFootball #WorldCup2026 #Football"
 
     # Check if any matches are currently live
     has_live = any(
@@ -617,14 +739,28 @@ def check_matches():
         for match in matches:
             status = match.get("status")
 
+            # For API-Football matches get live events separately
+            if code == "INTL" and match.get("_apif_fixture_id"):
+                if status == "IN_PLAY":
+                    match = enrich_apif_match(match)
+                elif status == "FINISHED":
+                    match = enrich_apif_match(match)
+
+            # Get competition specific name for internationals
+            if code == "INTL":
+                league_name = match.get("_comp_name", "International / Friendlies")
+
             # Lineups — 45 to 75 mins before kickoff
             if status in ("TIMED", "SCHEDULED"):
                 kickoff_str = match.get("utcDate", "")
                 if kickoff_str:
-                    kickoff = datetime.strptime(kickoff_str, "%Y-%m-%dT%H:%M:%SZ")
-                    now = datetime.utcnow()
-                    if timedelta(minutes=45) <= kickoff - now <= timedelta(minutes=75):
-                        handle_lineups(match, league_name)
+                    try:
+                        kickoff = datetime.strptime(kickoff_str, "%Y-%m-%dT%H:%M:%SZ")
+                        now = datetime.utcnow()
+                        if timedelta(minutes=45) <= kickoff - now <= timedelta(minutes=75):
+                            handle_lineups(match, league_name)
+                    except Exception:
+                        pass
 
             # Live events
             if status == "IN_PLAY":
@@ -642,6 +778,47 @@ def check_matches():
     # Filler on light/no matchdays when nothing is live
     if not has_live:
         handle_filler(has_live)
+
+
+def enrich_apif_match(match):
+    """Fetch goals and events for a live/finished API-Football match."""
+    fixture_id = match.get("_apif_fixture_id")
+    if not fixture_id:
+        return match
+
+    data = apifootball_get(f"/fixtures/events?fixture={fixture_id}")
+    if not data:
+        return match
+
+    goals    = []
+    bookings = []
+
+    for event in data.get("response", []):
+        etype  = event.get("type", "").lower()
+        detail = event.get("detail", "").lower()
+        minute = event.get("time", {}).get("elapsed", "?")
+        player = event.get("player", {}).get("name", "Unknown")
+        assist = event.get("assist", {})
+        team   = event.get("team", {}).get("name", "")
+
+        if etype == "goal" and "own" not in detail and "missed" not in detail:
+            goals.append({
+                "minute": minute,
+                "scorer": {"name": player},
+                "assist": {"name": assist.get("name", "")} if assist else {},
+                "team":   {"shortName": team},
+            })
+        elif etype == "card" and "red" in detail:
+            bookings.append({
+                "minute": minute,
+                "card":   "RED_CARD",
+                "player": {"name": player},
+                "team":   {"shortName": team},
+            })
+
+    match["goals"]    = goals
+    match["bookings"] = bookings
+    return match
 
 def run():
     print(f"{PAGE_NAME} Match Bot started...")
